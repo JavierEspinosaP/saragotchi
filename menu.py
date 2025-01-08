@@ -9,6 +9,11 @@ class Menu:
     DEBOUNCE_TIME = 200  # Tiempo de debounce en milisegundos
 
     def __init__(self):
+        # Status message variables
+        self.status_message = None
+        self.message_start_time = 0
+        self.MESSAGE_DURATION = 5  # Duration in seconds
+        
         # Inicialización de los botones
         self.buttons = {
             'a': Pin(12, Pin.IN, Pin.PULL_UP),
@@ -41,10 +46,10 @@ class Menu:
         self.WIDTH, self.HEIGHT = self.display.get_bounds()
 
         # Inicialización de estadísticas
-        self.hambre = 100
-        self.sueno = 100
-        self.felicidad = 100
-        self.salud = 100
+        self.hambre = 70
+        self.sueno = 70
+        self.felicidad = 70
+        self.salud = 70
 
         # Estado del menú
         self.in_food_menu = False
@@ -306,10 +311,10 @@ class Menu:
 
     def decrease_stats(self, timer):
         """Disminuye las estadísticas cada minuto."""
-        self.hambre = max(0, self.hambre - 1)
-        self.sueno = max(0, self.sueno - 1)
-        self.felicidad = max(0, self.felicidad - 1)
-        self.salud = max(0, self.salud - 1)
+        self.hambre = max(0, self.hambre - 0.023148)  # 100% -> 0% in 72 hours
+        self.sueno = max(0, self.sueno - 0.069444)    # 100% -> 0% in 24 hours
+        self.felicidad = max(0, self.felicidad - 0.034722)  # 100% -> 0% in 48 hours
+        # Health does not decrease with time
 
     def enqueue_animation(self, animation_name, repeats=1):
         """Añade una animación a la cola de animaciones."""
@@ -423,6 +428,11 @@ class Menu:
                 # Si el frame actual está fuera de rango, volver al inicio
                 self.current_frame = 0
 
+    def show_status_message(self, message):
+        """Shows a status message above the pet for 5 seconds"""
+        self.status_message = message
+        self.message_start_time = time.time()
+    
     def draw_menu(self):
         """Dibuja el menú actual en la pantalla."""
         # Limpiar la pantalla
@@ -462,6 +472,38 @@ class Menu:
                     self.draw_icon(icon_selected, self.WIDTH - 30, 10 + i * 45)
                 else:
                     self.draw_icon(icon, self.WIDTH - 30, 10 + i * 45)
+
+        # Draw status message if active (after drawing everything else)
+        if self.status_message:
+            current_time = time.time()
+            if current_time - self.message_start_time < self.MESSAGE_DURATION:
+                self.display.set_pen(self.HIGHLIGHT)  # Green color for status updates
+                message_y = 10  # Fixed position at top of screen
+                
+                # Split message into two lines if too long
+                if len(self.status_message) > 15:
+                    parts = self.status_message.split()
+                    line1 = ' '.join(parts[:len(parts)//2])
+                    line2 = ' '.join(parts[len(parts)//2:])
+                    
+                    # Calculate positions for both lines
+                    line1_width = len(line1) * 8 * 2  # scale=2
+                    line2_width = len(line2) * 8 * 2
+                    
+                    line1_x = (self.WIDTH - line1_width) // 2 + 30
+                    line2_x = (self.WIDTH - line2_width) // 2 + 30
+                    
+                    # Draw first line
+                    self.display.text(line1, line1_x, message_y, scale=2)
+                    # Draw second line below first
+                    self.display.text(line2, line2_x, message_y + 20, scale=2)
+                else:
+                    # Single line message
+                    message_width = len(self.status_message) * 8 * 2  # scale=2
+                    message_x = (self.WIDTH - message_width) // 2 + 25
+                    self.display.text(self.status_message, message_x, message_y, scale=2)
+            else:
+                self.status_message = None
 
         # Actualizar el display
         self.display.update()
@@ -545,10 +587,10 @@ class Menu:
     def show_stats(self):
         """Muestra las estadísticas actuales."""
         self.display.set_pen(self.WHITE)
-        self.display.text(f"Hunger: {self.hambre}", 10, 20, scale=3)
-        self.display.text(f"Sleep: {self.sueno}", 10, 50, scale=3)
-        self.display.text(f"Happiness: {self.felicidad}", 10, 80, scale=3)
-        self.display.text(f"Health: {self.salud}", 10, 110, scale=3)
+        self.display.text(f"Hunger: {round(self.hambre)}", 10, 20, scale=3)
+        self.display.text(f"Sleep: {round(self.sueno)}", 10, 50, scale=3)
+        self.display.text(f"Happiness: {round(self.felicidad)}", 10, 80, scale=3)
+        self.display.text(f"Health: {round(self.salud)}", 10, 110, scale=3)
 
     def navigate(self):
         """Gestiona la navegación del menú y las interacciones de los botones."""
@@ -712,6 +754,7 @@ class Menu:
         stats_to_increase = food_stat_increases.get(food_index, [])
         if self.is_stat_over_limit(stats_to_increase):
             print(f"Acción '{selected_food}' rechazada: alguna estadística está por encima del 90%.")
+            self.show_status_message("Too full! Can't eat more")
             self.play_immediately('ass', repeats=3)
             return
 
@@ -720,6 +763,7 @@ class Menu:
             self.felicidad = min(100, self.felicidad + 10)
             self.sueno = min(100, self.sueno + 5)
             self.salud = max(0, self.salud - 2)
+            self.show_status_message("Hunger +5 Happy +10 Sleep +5")
             print("Café seleccionado")
             # Encolar únicamente la animación 'happy2' tres veces
             self.enqueue_animation('happy2', repeats=3)
@@ -727,6 +771,7 @@ class Menu:
             self.hambre = min(100, self.hambre + 30)
             self.felicidad = min(100, self.felicidad + 5)
             self.salud = min(100, self.salud + 5)
+            self.show_status_message("Hunger +30 Happy +5 Health +5")
             print("Tofu seleccionado")
             # Encolar las animaciones 'eat' que consiste en 16 frames individuales
             self.enqueue_animation('eat', repeats=1)
@@ -734,6 +779,7 @@ class Menu:
             self.hambre = min(100, self.hambre + 10)
             self.felicidad = min(100, self.felicidad + 20)
             self.salud = max(0, self.salud - 10)
+            self.show_status_message("Hunger +10 Happy +20 Health -10")
             print("Moscow Mule seleccionado")
             # Encolar la animación 'drunk' dos veces después de seleccionar "Moscow Mule"
             self.enqueue_animation('drunk', repeats=2)
@@ -759,20 +805,24 @@ class Menu:
         stats_to_increase = entertainment_stat_increases.get(entertainment_index, [])
         if self.is_stat_over_limit(stats_to_increase):
             print(f"Acción '{selected_entertainment}' rechazada: alguna estadística está por encima del 90%.")
+            self.show_status_message("Too happy! Need rest")
             self.play_immediately('ass', repeats=3)
             return
 
         if entertainment_index == 0:  # Play Deftones
             self.felicidad = min(100, self.felicidad + 20)
+            self.show_status_message("Happy +20")
             print("Play Deftones seleccionado")
             # Encolar las animaciones 'guitar_1' hasta 'guitar_7' para reproducirlas secuencialmente
             for i in range(1, 8):
                 self.enqueue_animation(f'guitar_{i}')
         elif entertainment_index == 1:  # Read Book
             self.felicidad = min(100, self.felicidad + 10)
+            self.show_status_message("Happy +10")
             print("Read Book seleccionado")
         elif entertainment_index == 2:  # Go Festival
             self.felicidad = min(100, self.felicidad + 50)
+            self.show_status_message("Happy +50")
             print("Go Festival seleccionado")
 
         # Verificar condiciones para reproducir la animación 'ass' inmediatamente
@@ -795,12 +845,14 @@ class Menu:
         stats_to_increase = health_stat_increases.get(health_index, [])
         if self.is_stat_over_limit(stats_to_increase):
             print(f"Acción '{selected_health}' rechazada: alguna estadística está por encima del 90%.")
+            self.show_status_message("Too healthy! No need")
             self.play_immediately('ass', repeats=3)
             return
 
         if health_index == 0:  # A hug
             self.salud = min(100, self.salud + 10)
             self.felicidad = min(100, self.felicidad + 15)
+            self.show_status_message("Health +10 Happy +15")
             print("A hug seleccionado")
             # Encolar las animaciones 'love_1' y 'love_2' en secuencia, repetidas dos veces
             for _ in range(2):
@@ -808,6 +860,7 @@ class Menu:
                 self.enqueue_animation('love_2')
         elif health_index == 1:  # Ibuprofeno
             self.salud = min(100, self.salud + 30)
+            self.show_status_message("Health +30")
             print("Ibuprofeno seleccionado")
             # Encolar la animación 'talk' dos veces después de seleccionar "Ibuprofeno"
             self.enqueue_animation('talk', repeats=2)
@@ -822,11 +875,13 @@ class Menu:
         if nap:
             self.sleep_end_time = time.time() + 20 * 60  # 20 minutos
             self.sueno = min(100, self.sueno + 20)      # Incremento de sueño por la siesta
+            self.show_status_message("Sleep +20")
             print(f"Sueño incrementado a: {self.sueno}")
             sleep_duration = "20 minutos"
         else:
             self.sleep_end_time = time.time() + 6 * 60 * 60  # 6 horas
             self.sueno = min(100, self.sueno + 60)           # Incremento de sueño por dormir
+            self.show_status_message("Sleep +60")
             print(f"Sueño incrementado a: {self.sueno}")
             sleep_duration = "6 horas"
 
@@ -853,6 +908,7 @@ class Menu:
         """Incrementa las estadísticas de salud y felicidad y ejecuta animaciones de enojo."""
         self.salud = min(100, self.salud + 10)
         self.felicidad = min(100, self.felicidad + 5)
+        self.show_status_message("Health +10 Happy +5")
         self.poop_visible = False  # Ocultar la imagen 'poop.png' al limpiar
         self.next_poop_time = time.time() + random.uniform(60, 120)  # Reprogramar la próxima aparición
         print(f"Salud incrementado a: {self.salud}")
